@@ -50,6 +50,13 @@ def main():
             #print(mode,path,sha1)
             print(path.decode("utf-8"))
         #print(rest, end="")
+    elif command == "write-tree":
+        for dirpath, dirnames, filenames in os.walk("./"):
+            print(f'Found directory: {dirpath}',os.path.basename(os.path.dirname(dirpath)))
+            if ".git" in dirnames:
+                dirnames.remove(".git")
+            for file_name in filenames:
+                print(file_name)
     else:
         raise RuntimeError(f"Unknown command #{command}")
 
