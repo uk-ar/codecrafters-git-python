@@ -37,6 +37,19 @@ def main():
         with open(".git/objects/"+sha1[:2]+"/"+sha1[2:], "wb") as f:
             f.write(zlib.compress(s))
         print(sha1)
+    elif command == "ls-tree":
+        sha1 = sys.argv[3]
+        with open(".git/objects/"+sha1[:2]+"/"+sha1[2:], "rb") as f:
+            s = zlib.decompress(f.read())
+        kind, s = s.split(b" ", maxsplit=1)
+        size, s = s.split(b"\0", maxsplit=1)
+        while s:
+            mode, s = s.split(b" ", maxsplit=1)
+            path, s = s.split(b"\0", maxsplit=1)
+            sha1, s = s[:20],s[20:]
+            #print(mode,path,sha1)
+            print(path.decode("utf-8"))
+        #print(rest, end="")
     else:
         raise RuntimeError(f"Unknown command #{command}")
 
