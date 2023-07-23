@@ -2,7 +2,49 @@ import sys
 import os
 import zlib
 import hashlib
+from sys import byteorder
 
+def hash_object(file):
+    if os.path.isdir(file):
+        return write_tree(file)
+    with open(file, "rb") as f:
+        s = f.read()
+    s = b"blob " + str(len(s)).encode()+b'\0'+s
+    sha1 = hashlib.sha1(s).hexdigest()
+    if os.path.exists(".git/objects/"+sha1[:2]+"/"+sha1[2:]):
+        return sha1
+    os.makedirs(".git/objects/"+sha1[:2],exist_ok=True)
+    with open(".git/objects/"+sha1[:2]+"/"+sha1[2:], "wb") as f:
+        f.write(zlib.compress(s))
+    return sha1
+#100644 blob e69de29bb2d1d6434b8b29ae775ad8c2e48c5391    a.txt
+#100644 blob 78981922613b2afb6025042ff6bd878ac1994e85    b.txt
+#040000 tree 681a0256c5949eb40b927539f040092f453546ca    c
+
+def write_tree(path):#return sha1
+    if os.path.isfile(path):
+        return hash_object(path)
+    contents = sorted(os.listdir(path), 
+                      key=lambda x: x if os.path.isfile(os.path.join(path,x))
+                      else x+"/")
+    s = b""
+    for item in contents:
+        if item == ".git":
+            continue
+        full = os.path.join(path,item)
+        if os.path.isfile(full):
+            s += f"100644 {item}\0".encode()
+        else:
+            s += f"40000 {item}\0".encode()
+        sha1 = int.to_bytes(int(write_tree(full),base=16),length=20,byteorder="big")
+        s += sha1
+    s = f"tree {len(s)}\0".encode() + s
+    #print(s)
+    sha1 = hashlib.sha1(s).hexdigest()
+    os.makedirs(".git/objects/"+sha1[:2],exist_ok=True)
+    with open(".git/objects/"+sha1[:2]+"/"+sha1[2:], "wb") as f:
+        f.write(zlib.compress(s))
+    return sha1    
 
 def main():
     # You can use print statements as follows for debugging, they'll be visible when running tests.
@@ -21,22 +63,22 @@ def main():
     elif command == "cat-file":
         sha1 = sys.argv[3]
         with open(".git/objects/"+sha1[:2]+"/"+sha1[2:], "rb") as f:
-            s = f.read()
+            s = zlib.decompress(f.read())
         # print(hashlib.sha1(zlib.decompress(s)).hexdigest())
-        kind, rest = zlib.decompress(s).split(b" ", maxsplit=1)
-        size, rest = rest.split(b"\0", maxsplit=1)
-        # print(kind,size,rest)
-        print(rest.decode(), end="")
+        kind, s = s.split(b" ", maxsplit=1)
+        size, s = s.split(b"\0", maxsplit=1)
+        #print(kind,size,s)
+        if kind==b"blob" or kind =="blob":
+            print(s.decode(),sep="", end="")
+        elif kind==b"tree":
+            while s:
+                mode, s = s.split(b" ", maxsplit=1)
+                path, s = s.split(b"\0", maxsplit=1)
+                sha1, s = int.from_bytes(s[:20],byteorder="big"),s[20:]
+                print(mode,format(sha1,'x'),path.decode())
+                #print(format(int(mode.decode(),8),'06o'),format(sha1,'x'),path.decode())
     elif command == "hash-object":
-        file = sys.argv[3]
-        with open(file, "rb") as f:
-            s = f.read()
-        s = b"blob " + str(len(s)).encode()+b'\0'+s
-        sha1 = hashlib.sha1(s).hexdigest()
-        os.makedirs(".git/objects/"+sha1[:2],exist_ok=True)
-        with open(".git/objects/"+sha1[:2]+"/"+sha1[2:], "wb") as f:
-            f.write(zlib.compress(s))
-        print(sha1)
+        print(write_tree(sys.argv[3]))
     elif command == "ls-tree":
         sha1 = sys.argv[3]
         with open(".git/objects/"+sha1[:2]+"/"+sha1[2:], "rb") as f:
@@ -51,12 +93,7 @@ def main():
             print(path.decode("utf-8"))
         #print(rest, end="")
     elif command == "write-tree":
-        for dirpath, dirnames, filenames in os.walk("./"):
-            print(f'Found directory: {dirpath}',os.path.basename(os.path.dirname(dirpath)))
-            if ".git" in dirnames:
-                dirnames.remove(".git")
-            for file_name in filenames:
-                print(file_name)
+        print(write_tree("./"))
     else:
         raise RuntimeError(f"Unknown command #{command}")
 
