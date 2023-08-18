@@ -17,13 +17,37 @@ import hashlib
 import base64
 import gzip
 import os
+import io
 from struct import unpack
 from collections import OrderedDict
 #".git/objects/pack/pack-1b3414d8dcf88f8de78a61a7a8264d379c711e85.pack"
 file = ".git/objects/pack/pack-6e797c86f303c7323056431875af4eefea332fe7.pack"
 types = [b"ERROR",b"COMMIT",b"TREE",b"BLOB",b"TAG",b"ERROR",b"OFS_DELTA",b"REF_DELTA"]
 
-file = ".git/objects/pack/pack-f20b84305579f7cd631402e28b5680d0a4770ffa.pack"
+def write_object(cont,base="."): # write file to git database and return sha1
+    sha1 = hashlib.sha1(cont).hexdigest()
+    if os.path.exists(base+"/.git/objects/"+sha1[:2]+"/"+sha1[2:]):
+        return sha1
+    os.makedirs(base+"/.git/objects/"+sha1[:2], exist_ok=True)
+    with open(base+"/.git/objects/"+sha1[:2]+"/"+sha1[2:], "wb") as f:
+        f.write(zlib.compress(cont))
+    return sha1
+
+def read_size(f):
+    byte = unpack("!b",f.read(1))[0]
+    print(bin(byte))
+    off = byte & ((1 << 7)-1) #offset?
+    msb = (byte >> 7) & 1
+    while msb:
+        byte = unpack("!b",f.read(1))[0]
+        off = (off+1) << 7
+        off += ((byte & ((1<<7)-1)))
+        msb = (byte >> 7) & 1
+    return off
+
+#file = ".git/objects/pack/pack-f20b84305579f7cd631402e28b5680d0a4770ffa.pack"
+#file = ".git/objects/pack/pack-941526bd8d94d62396a7003886258ea6e35ef936.pack"
+file = ".git/objects/pack/pack-f51a3ed2ea5276445e579cb43df8a26bd3fcd9c9.pack"
 od = OrderedDict()
 with open(file, "rb") as f:
     sig,version,num = unpack("!4sii",f.read(12)) # ! means big endian
@@ -63,18 +87,20 @@ with open(file, "rb") as f:
                 cont += decomp.decompress(chunk)
                 chunk = decomp.unconsumed_tail
             f.seek(-len(decomp.unused_data),os.SEEK_CUR)# from current
+        if types[obj_type]==b"OFS_DELTA":
+            print(f'ref:{od[offset_in_packfile-off]}')
+            #print(cont.hex())
+            before,after = unpack("HH",cont[:4])
+            #f = io.BytesIO(cont)
+            #after = read_size(f)
+            #before = read_size(f)            
+            #print(before,after)
+            #print(f.read().hex())
         sha1 = hashlib.sha1(types[obj_type].lower()+f" {len(cont)}\0".encode()+cont).hexdigest()
         od[offset_in_packfile]=sha1
-        print(f'{sha1} {types[obj_type]} {length} {f.tell()-offset_in_packfile} {offset_in_packfile}',end="")
-        if types[obj_type]==b"OFS_DELTA":
-            print(f' {od[offset_in_packfile-off]}')
-            print(cont.hex())
-            before,after = unpack("HH",cont[:4])
-            print(before,after)
-            print(cont[4:])
-        else:
-            print()
-
+        print(f'{sha1} {types[obj_type]} {length} {f.tell()-offset_in_packfile} {offset_in_packfile}')#,end="")
+        write_object(cont,"test_dir/")
+        print(cont)
 exit(0)
 #7a004b59311d7ff9bb2fb32de5c23d523034c5d6 commit 230 157 12
 #2ed99a4a46a26fc7dd29f7749424a3bedae44c19 commit 182 126 169

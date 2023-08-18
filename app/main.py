@@ -3,10 +3,10 @@ import os
 import zlib
 import hashlib
 # from sys import byteorder
-import datetime
+import datetime  
+import subprocess
 
-
-def hash_object(file):
+def hash_object(file): # write file to git database and return sha1
     if os.path.isdir(file):
         return write_tree(file)
     with open(file, "rb") as f:
@@ -50,6 +50,28 @@ def write_tree(path):  # return sha1
         f.write(zlib.compress(s))
     return sha1
 
+def cat_file(kind,s):
+    if kind == b"blob":
+        print(s.decode(), end="")
+    elif kind == b"tree":
+        while s:
+            mode, s = s.split(b" ", maxsplit=1)
+            path, s = s.split(b"\0", maxsplit=1)
+            sha1, s = int.from_bytes(s[:20], byteorder="big"), s[20:]
+            print(mode, format(sha1, 'x'), path.decode())
+            # print(format(int(mode.decode(),8),'06o'),format(sha1,'x'),path.decode())
+    elif kind == b"commit":
+        print(s.decode(), end="")
+    else:
+        print(s, end="")
+
+def init(path="."):
+    os.mkdir(path + "/.git")
+    os.mkdir(path + "/.git/objects")
+    os.mkdir(path + "/.git/refs")
+    with open(path + "/.git/HEAD", "w") as f:
+        f.write("ref: refs/heads/master\n")
+    print("Initialized git directory")
 
 def main():
     # You can use print statements as follows for debugging, they'll be visible when running tests.
@@ -59,12 +81,7 @@ def main():
     #
     command = sys.argv[1]
     if command == "init":
-        os.mkdir(".git")
-        os.mkdir(".git/objects")
-        os.mkdir(".git/refs")
-        with open(".git/HEAD", "w") as f:
-            f.write("ref: refs/heads/master\n")
-        print("Initialized git directory")
+        init("./")
     elif command == "cat-file":
         sha1 = sys.argv[3]
         with open(".git/objects/"+sha1[:2]+"/"+sha1[2:], "rb") as f:
@@ -74,17 +91,7 @@ def main():
         kind, s = s.split(b" ", maxsplit=1)
         size, s = s.split(b"\0", maxsplit=1)
         # print(kind,size,s)
-        if kind == b"blob":
-            print(s.decode(), end="")
-        elif kind == b"tree":
-            while s:
-                mode, s = s.split(b" ", maxsplit=1)
-                path, s = s.split(b"\0", maxsplit=1)
-                sha1, s = int.from_bytes(s[:20], byteorder="big"), s[20:]
-                print(mode, format(sha1, 'x'), path.decode())
-                # print(format(int(mode.decode(),8),'06o'),format(sha1,'x'),path.decode())
-        else:
-            print(s.decode(), end="")
+        cat_file(kind,s)
     elif command == "hash-object":
         print(write_tree(sys.argv[3]))
     elif command == "ls-tree":
@@ -102,6 +109,16 @@ def main():
         # print(rest, end="")
     elif command == "write-tree":
         print(write_tree("./"))
+    elif command == "clone":
+        url = sys.argv[2]
+        dir = sys.argv[3]
+        print(sys.argv)
+        os.makedirs(dir, exist_ok=True)
+        init(dir)
+        subprocess.call("ls")
+        # r = requests.get(url+"/info/refs?service=git-upload-pack")
+        
+        #print(write_tree("./"))
     elif command == "commit-tree":
         # print(sys.argv)
         tree_sha = sys.argv[2]
@@ -128,6 +145,7 @@ committer {author} {timestamp}
         # 'commit-tree', 'eeb712e789b6616df86a6ed45a1d2629f360fcbf', '-p', 'ff669c388e263c71948998930630cb9828f677d6', '-m', 'vanilla yikes scooby monkey humpty humpty'
         # git cat-file commit <sha>
     else:
+        print(sys.argv)
         raise RuntimeError(f"Unknown command #{command}")
 
 
