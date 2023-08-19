@@ -232,16 +232,7 @@ with open(file, "rb") as f:
         offset_in_packfile = f.tell()
         obj = read_obj(f,offset_objs)
         offset_objs[offset_in_packfile]=obj
-        #sha1 = hashlib.sha1(types[obj_type].lower()+f" {len(cont)}\0".encode()+cont).hexdigest()
-        #od[offset_in_packfile]=sha1
-        #contents[sha1]=cont
-        #obj_types[sha1]=obj_type
-        #print(f'{sha1} {types[obj_type]} {length} {f.tell()-offset_in_packfile} {offset_in_packfile}')#,end="")
-        #write_object(types[obj_type].lower()+f" {len(cont)}\0".encode()+cont,"test_dir/")
         write_object(Obj.file(obj.type,obj.content),"test_dir/")
-        #print(types[obj_type],cont)
-        #cat_file(types[obj_type],cont)
-        print(obj)
         obj.print()
     #checkout("b76748386b277ead1d1a473655acc621288e4ff1",contents,obj_types)
 exit(0)
