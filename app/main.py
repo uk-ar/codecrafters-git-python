@@ -5,6 +5,10 @@ import hashlib
 # from sys import byteorder
 import datetime  
 import subprocess
+#import clone
+import app.clone
+
+print("main")
 
 def hash_object(file): # write file to git database and return sha1
     if os.path.isdir(file):
@@ -73,6 +77,8 @@ def init(path="."):
         f.write("ref: refs/heads/master\n")
     print("Initialized git directory")
 
+print("main")
+
 def main():
     # You can use print statements as follows for debugging, they'll be visible when running tests.
     # print("Logs from your program will appear here!")
@@ -110,13 +116,15 @@ def main():
     elif command == "write-tree":
         print(write_tree("./"))
     elif command == "clone":
+        print("clone")
         url = sys.argv[2]
         dir = sys.argv[3]
         print(sys.argv)
         os.makedirs(dir, exist_ok=True)
         init(dir)
-        subprocess.call("ls")
-        r = requests.get(url+"/info/refs?service=git-upload-pack")
+        app.clone.clone(url,dir)
+        #subprocess.call("ls")
+        #r = requests.get(url+"/info/refs?service=git-upload-pack")
         
         #print(write_tree("./"))
     elif command == "commit-tree":
