@@ -45,9 +45,6 @@ class Obj:
     def print(self):
         print(self.content.decode())
 
-def gen_obj():
-    pass
-
 @dataclass
 class Ofs_delta(Obj):
     pass
@@ -142,6 +139,10 @@ file = ".git/objects/pack/pack-965d7c52f914e48e73b0331067c88c7c3347c77e.pack"
 od = OrderedDict() # offset to sha1
 contents = {}
 obj_types = {}
+
+def gen_obj():
+    pass
+
 with open(file, "rb") as f:
     sig,version,num = unpack("!4sii",f.read(12)) # ! means big endian
     print(sig,version,num)
@@ -158,16 +159,18 @@ with open(file, "rb") as f:
             length += (byte & ((1<<7)-1)) << shift
             msb = (byte >> 7) & 1
             shift += 7
+
         if types[obj_type]==b"OFS_DELTA":
-            byte = unpack("!b",f.read(1))[0]
-            print(bin(byte))
-            off = byte & ((1 << 7)-1) #offset?
-            msb = (byte >> 7) & 1
-            while msb:
-                byte = unpack("!b",f.read(1))[0]
-                off = (off+1) << 7
-                off += ((byte & ((1<<7)-1)))
-                msb = (byte >> 7) & 1
+            off = decode_offset(f)
+            # byte = unpack("!b",f.read(1))[0]
+            # print(bin(byte))
+            # off = byte & ((1 << 7)-1) #offset?
+            # msb = (byte >> 7) & 1
+            # while msb:
+            #     byte = unpack("!b",f.read(1))[0]
+            #     off = (off+1) << 7
+            #     off += ((byte & ((1<<7)-1)))
+            #     msb = (byte >> 7) & 1
             print(off,offset_in_packfile-off)
         decomp = zlib.decompressobj()
         cont = b""
