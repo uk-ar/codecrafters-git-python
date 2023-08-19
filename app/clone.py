@@ -272,13 +272,16 @@ def download(url):
         line, s = s[:length], s[length:]
         if line == b"NAK\n":
             break
-
-    bytes_io = io.BytesIO(s)
+    
     while s:
+        #length = int(bytes_io.read(4),base=16)-4
         length, s = int(s[:4], base=16)-4, s[4:]
         if length <= 0:
             continue
+        #line = bytes_io.read(length)
         line, s = s[:length], s[length:]
+        #bytes_io = io.BytesIO(line)
+        #sideband = bytes_io.read(1)
         sideband, line = line[:1], line[1:]
         if sideband == b"\2": # progress
             print(line.decode(), end="")
@@ -301,6 +304,7 @@ def clone(url,dir):
     with open(file, "rb") as f:
         sig,version,num = unpack("!4sii",f.read(12)) # ! means big endian
         print(sig,version,num)
+
         files = []
         offset_objs = {}
         sha1_objs = {}
