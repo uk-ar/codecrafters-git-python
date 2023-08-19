@@ -20,9 +20,53 @@ import os
 import io
 from struct import unpack
 from collections import OrderedDict
+from dataclasses import dataclass, field
 #".git/objects/pack/pack-1b3414d8dcf88f8de78a61a7a8264d379c711e85.pack"
-file = ".git/objects/pack/pack-6e797c86f303c7323056431875af4eefea332fe7.pack"
+
+#file = ".git/objects/pack/pack-6e797c86f303c7323056431875af4eefea332fe7.pack"
 types = [b"ERROR",b"COMMIT",b"TREE",b"BLOB",b"TAG",b"ERROR",b"OFS_DELTA",b"REF_DELTA"]
+
+def cat_file(kind,s):
+    if kind == b"blob" or kind == b"BLOB":
+        print(s.decode(), end="")
+    elif kind == b"tree" or kind == b"TREE":
+        while s:
+            mode, s = s.split(b" ", maxsplit=1)
+            mode = mode.decode()
+            path, s = s.split(b"\0", maxsplit=1)
+            path = path.decode()
+            sha1, s = int.from_bytes(s[:20], byteorder="big"), s[20:]
+            print(f'{mode:0>6} {sha1:x} {path}')
+            # print(format(int(mode.decode(),8),'06o'),format(sha1,'x'),path.decode())
+    elif kind == b"commit" or kind == b"COMMIT":
+        print(s.decode(), end="")
+    else:
+        print(s, end="")
+
+def create(base,contents,obj_types):
+    if kind == b"blob" or kind == b"BLOB":
+        #print(s.decode(), end="")
+        pass
+    elif kind == b"tree" or kind == b"TREE":
+        while s:
+            mode, s = s.split(b" ", maxsplit=1)
+            mode = mode.decode()
+            path, s = s.split(b"\0", maxsplit=1)
+            path = path.decode()
+            sha1, s = int.from_bytes(s[:20], byteorder="big"), s[20:]
+            #print(f'{mode:0>6} {sha1:x} {path}')
+            # print(format(int(mode.decode(),8),'06o'),format(sha1,'x'),path.decode())
+    elif kind == b"commit" or kind == b"COMMIT":
+        return s.split(b" ")[1]
+        #print(s.decode(), end="")
+    else:
+        pass
+        #print(s, end="")
+
+def checkout(commit,contents,obj_types):
+    tree_sha1 = contents[commit].split(b" ")[1]
+
+    pass
 
 def write_object(cont,base="."): # write file to git database and return sha1
     sha1 = hashlib.sha1(cont).hexdigest()
@@ -33,22 +77,47 @@ def write_object(cont,base="."): # write file to git database and return sha1
         f.write(zlib.compress(cont))
     return sha1
 
-def read_size(f):
-    byte = unpack("!b",f.read(1))[0]
-    print(bin(byte))
+def decode_offset(f):
+    byte = unpack("!B",f.read(1))[0]  
+    print(0,bin(byte))
     off = byte & ((1 << 7)-1) #offset?
-    msb = (byte >> 7) & 1
+    msb = (byte >> 7) & 1    
     while msb:
-        byte = unpack("!b",f.read(1))[0]
+        byte = unpack("!B",f.read(1))[0]
+        print(1,bin(byte))
         off = (off+1) << 7
         off += ((byte & ((1<<7)-1)))
         msb = (byte >> 7) & 1
+    print("off:",bin(off))
     return off
+
+@dataclass
+class Tree:
+    type: bytes
+    num: int
+    offset: int
+    freeblock: bytes = 0
+    def __post_init__(self):
+        pass
+
+def decode_size(f):
+    byte = unpack("!B",f.read(1))[0]
+    msb = (byte >> 7) & 1
+    length = (byte & ((1<<7)-1))
+    shift = 7
+    while msb:
+        byte = unpack("!B",f.read(1))[0]
+        length += (byte & ((1<<7)-1)) << shift
+        msb = (byte >> 7) & 1
+        shift += 7
+    return length
 
 #file = ".git/objects/pack/pack-f20b84305579f7cd631402e28b5680d0a4770ffa.pack"
 #file = ".git/objects/pack/pack-941526bd8d94d62396a7003886258ea6e35ef936.pack"
-file = ".git/objects/pack/pack-f51a3ed2ea5276445e579cb43df8a26bd3fcd9c9.pack"
-od = OrderedDict()
+file = ".git/objects/pack/pack-965d7c52f914e48e73b0331067c88c7c3347c77e.pack"
+od = OrderedDict() # offset to sha1
+contents = {}
+obj_types = {}
 with open(file, "rb") as f:
     sig,version,num = unpack("!4sii",f.read(12)) # ! means big endian
     print(sig,version,num)
@@ -87,20 +156,53 @@ with open(file, "rb") as f:
                 cont += decomp.decompress(chunk)
                 chunk = decomp.unconsumed_tail
             f.seek(-len(decomp.unused_data),os.SEEK_CUR)# from current
-        if types[obj_type]==b"OFS_DELTA":
-            print(f'ref:{od[offset_in_packfile-off]}')
-            #print(cont.hex())
-            before,after = unpack("HH",cont[:4])
-            #f = io.BytesIO(cont)
-            #after = read_size(f)
-            #before = read_size(f)            
-            #print(before,after)
-            #print(f.read().hex())
+        if types[obj_type]==b"OFS_DELTA":            
+            ref_sha1 = od[offset_in_packfile-off]
+            ref = contents[ref_sha1]
+            obj_type = obj_types[ref_sha1]
+            print(f'ref:{ref}')
+            # print(cont.hex())
+            # before,after = unpack("HH",cont[:4])
+            bytes_io = io.BytesIO(cont)
+            after = decode_size(bytes_io)
+            before = decode_size(bytes_io)
+            print(f"before:{before},after:{after}")
+            inst = bytes_io.read(1)
+            cont = b""
+            #contents[sha1]
+            while inst:
+                inst = int.from_bytes(inst,byteorder="big")
+                ops  = [-1]*7
+                if inst == 0: # reserved
+                    pass
+                elif (inst >> 7) & 1:
+                    for i in range(6):
+                        if (inst >> i ) & 1:
+                            ops[i] = decode_size(bytes_io)
+                    for i in range(3):
+                        if ops[i]!=-1 or ops[i+4]!=-1:
+                            if ops[i]==-1:
+                                ops[i]=0
+                            if ops[i+4]==-1:
+                                ops[i+4]=0x10000
+                        cont += ref[ops[i]:ops[i]+ops[i+4]]
+                    if ops[3]!=-1:
+                        cont += ref[ops[3]:ops[3]+0x10000]
+                else:
+                    size = inst & ((1<<7)-1)
+                    cont += bytes_io.read(size)
+                print(cont)
+                inst = bytes_io.read(1)
+            #print(bytes_io.read().hex())
         sha1 = hashlib.sha1(types[obj_type].lower()+f" {len(cont)}\0".encode()+cont).hexdigest()
         od[offset_in_packfile]=sha1
+        contents[sha1]=cont
+        obj_types[sha1]=obj_type
         print(f'{sha1} {types[obj_type]} {length} {f.tell()-offset_in_packfile} {offset_in_packfile}')#,end="")
-        write_object(cont,"test_dir/")
-        print(cont)
+        write_object(types[obj_type].lower()+f" {len(cont)}\0".encode()+cont,"test_dir/")
+        print(types[obj_type],cont)
+        cat_file(types[obj_type],cont)
+    checkout("b76748386b277ead1d1a473655acc621288e4ff1",contents,obj_types)
 exit(0)
 #7a004b59311d7ff9bb2fb32de5c23d523034c5d6 commit 230 157 12
 #2ed99a4a46a26fc7dd29f7749424a3bedae44c19 commit 182 126 169
