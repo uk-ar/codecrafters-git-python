@@ -35,12 +35,12 @@ class Obj:
         self.sha1 = Obj.hash(self.type,self.content)
 
     @staticmethod
-    def header(type,content):
-        return types[type].lower()+f" {len(content)}\0".encode()
+    def file(type,content):
+        return types[type].lower()+f" {len(content)}\0".encode()+content
 
     @staticmethod
     def hash(type,content):
-        return hashlib.sha1(Obj.header(type,content)+content).hexdigest()
+        return hashlib.sha1(Obj.file(type,content)).hexdigest()
 
     def print(self):
         print(self.content.decode())
@@ -57,7 +57,7 @@ class Blob(Obj):
 class Tree(Obj):
     objs: list = field(default_factory=list)
     def __post_init__(self):
-        super.__post_init__()
+        super().__post_init__()
         s = self.content
         while s:
             mode, s = s.split(b" ", maxsplit=1)
@@ -77,10 +77,10 @@ class Commit(Obj):
     def __post_init__(self):
         self.tree = self.content.split(b" ")[1]
 
-def cat_file(kind,s):
-    if kind == b"blob" or kind == b"BLOB":
+def cat_file(type,s):
+    if type == b"blob" or type == b"BLOB":
         print(s.decode(), end="")
-    elif kind == b"tree" or kind == b"TREE":
+    elif type == b"tree" or type == b"TREE":
         while s:
             mode, s = s.split(b" ", maxsplit=1)
             mode = mode.decode()
@@ -89,7 +89,7 @@ def cat_file(kind,s):
             sha1, s = int.from_bytes(s[:20], byteorder="big"), s[20:]
             print(f'{mode:0>6} {sha1:x} {path}')
             # print(format(int(mode.decode(),8),'06o'),format(sha1,'x'),path.decode())
-    elif kind == b"commit" or kind == b"COMMIT":
+    elif type == b"commit" or type == b"COMMIT":
         print(s.decode(), end="")
     else:
         print(s, end="")
@@ -140,96 +140,110 @@ od = OrderedDict() # offset to sha1
 contents = {}
 obj_types = {}
 
-def gen_obj():
-    pass
+def gen_obj(type_num,content):
+    if types[type_num] == b"BLOB":
+        return Blob(type_num,content)
+    elif types[type_num] == b"TREE":
+        return Tree(type_num,content)
+    elif types[type_num] == b"COMMIT":
+        return Commit(type_num,content)
+    else:
+        return Obj(type_num,content)
+
+def read_obj(f, offset_objs):
+    byte = unpack("!b",f.read(1))[0]
+    obj_type = byte >> 4 & ((1 << 3)-1)
+    length = byte & ((1 << 4)-1)
+    msb = (byte >> 7) & 1
+    shift = 4
+    while msb:
+        byte = unpack("!b",f.read(1))[0]
+        length += (byte & ((1<<7)-1)) << shift
+        msb = (byte >> 7) & 1
+        shift += 7
+
+    if types[obj_type]==b"OFS_DELTA":
+        off = decode_offset(f)
+        #print(off,offset_in_packfile-off)
+
+    decomp = zlib.decompressobj()
+    cont = b""
+    while not decomp.eof:
+        chunk = f.read(1024)
+        if not chunk:
+            cont += decomp.flush()
+            break
+        while chunk:
+            cont += decomp.decompress(chunk)
+            chunk = decomp.unconsumed_tail
+        f.seek(-len(decomp.unused_data),os.SEEK_CUR)# from current
+    if types[obj_type]!=b"OFS_DELTA":
+        return gen_obj(obj_type,cont)
+
+    ref_obj = offset_objs[offset_in_packfile-off]
+    ref      = ref_obj.content
+    obj_type = ref_obj.type
+    # ref_sha1 = od[offset_in_packfile-off]
+    # ref = contents[ref_sha1]
+    # obj_type = obj_types[ref_sha1]
+    print(f'ref:{ref}')
+    # print(cont.hex())
+    # before,after = unpack("HH",cont[:4])
+    bytes_io = io.BytesIO(cont)
+    after = decode_size(bytes_io)
+    before = decode_size(bytes_io)
+    print(f"before:{before},after:{after}")
+    inst = bytes_io.read(1)
+    cont = b""
+    #contents[sha1]
+    while inst:
+        inst = int.from_bytes(inst,byteorder="big")
+        ops  = [-1]*7
+        if inst == 0: # reserved
+            pass
+        elif (inst >> 7) & 1:
+            for i in range(6):
+                if (inst >> i ) & 1:
+                    ops[i] = decode_size(bytes_io)
+            for i in range(3):
+                if ops[i]!=-1 or ops[i+4]!=-1:
+                    if ops[i]==-1:
+                        ops[i]=0
+                    if ops[i+4]==-1:
+                        ops[i+4]=0x10000
+                cont += ref[ops[i]:ops[i]+ops[i+4]]
+            if ops[3]!=-1:
+                cont += ref[ops[3]:ops[3]+0x10000]
+        else:
+            size = inst & ((1<<7)-1)
+            cont += bytes_io.read(size)
+        print(cont)
+        inst = bytes_io.read(1)
+
+    return gen_obj(obj_type,cont)
+    #print(bytes_io.read().hex())
 
 with open(file, "rb") as f:
     sig,version,num = unpack("!4sii",f.read(12)) # ! means big endian
     print(sig,version,num)
     files = []
+    offset_objs = {}
     for _ in range(num):
         offset_in_packfile = f.tell()
-        byte = unpack("!b",f.read(1))[0]
-        obj_type = byte >> 4 & ((1 << 3)-1)
-        length = byte & ((1 << 4)-1)
-        msb = (byte >> 7) & 1
-        shift = 4
-        while msb:
-            byte = unpack("!b",f.read(1))[0]
-            length += (byte & ((1<<7)-1)) << shift
-            msb = (byte >> 7) & 1
-            shift += 7
-
-        if types[obj_type]==b"OFS_DELTA":
-            off = decode_offset(f)
-            # byte = unpack("!b",f.read(1))[0]
-            # print(bin(byte))
-            # off = byte & ((1 << 7)-1) #offset?
-            # msb = (byte >> 7) & 1
-            # while msb:
-            #     byte = unpack("!b",f.read(1))[0]
-            #     off = (off+1) << 7
-            #     off += ((byte & ((1<<7)-1)))
-            #     msb = (byte >> 7) & 1
-            print(off,offset_in_packfile-off)
-        decomp = zlib.decompressobj()
-        cont = b""
-        while not decomp.eof:
-            chunk = f.read(1024)
-            if not chunk:
-                cont += decomp.flush()
-                break
-            while chunk:
-                cont += decomp.decompress(chunk)
-                chunk = decomp.unconsumed_tail
-            f.seek(-len(decomp.unused_data),os.SEEK_CUR)# from current
-        if types[obj_type]==b"OFS_DELTA":            
-            ref_sha1 = od[offset_in_packfile-off]
-            ref = contents[ref_sha1]
-            obj_type = obj_types[ref_sha1]
-            print(f'ref:{ref}')
-            # print(cont.hex())
-            # before,after = unpack("HH",cont[:4])
-            bytes_io = io.BytesIO(cont)
-            after = decode_size(bytes_io)
-            before = decode_size(bytes_io)
-            print(f"before:{before},after:{after}")
-            inst = bytes_io.read(1)
-            cont = b""
-            #contents[sha1]
-            while inst:
-                inst = int.from_bytes(inst,byteorder="big")
-                ops  = [-1]*7
-                if inst == 0: # reserved
-                    pass
-                elif (inst >> 7) & 1:
-                    for i in range(6):
-                        if (inst >> i ) & 1:
-                            ops[i] = decode_size(bytes_io)
-                    for i in range(3):
-                        if ops[i]!=-1 or ops[i+4]!=-1:
-                            if ops[i]==-1:
-                                ops[i]=0
-                            if ops[i+4]==-1:
-                                ops[i+4]=0x10000
-                        cont += ref[ops[i]:ops[i]+ops[i+4]]
-                    if ops[3]!=-1:
-                        cont += ref[ops[3]:ops[3]+0x10000]
-                else:
-                    size = inst & ((1<<7)-1)
-                    cont += bytes_io.read(size)
-                print(cont)
-                inst = bytes_io.read(1)
-            #print(bytes_io.read().hex())
-        sha1 = hashlib.sha1(types[obj_type].lower()+f" {len(cont)}\0".encode()+cont).hexdigest()
-        od[offset_in_packfile]=sha1
-        contents[sha1]=cont
-        obj_types[sha1]=obj_type
-        print(f'{sha1} {types[obj_type]} {length} {f.tell()-offset_in_packfile} {offset_in_packfile}')#,end="")
-        write_object(types[obj_type].lower()+f" {len(cont)}\0".encode()+cont,"test_dir/")
-        print(types[obj_type],cont)
-        cat_file(types[obj_type],cont)
-    checkout("b76748386b277ead1d1a473655acc621288e4ff1",contents,obj_types)
+        obj = read_obj(f,offset_objs)
+        offset_objs[offset_in_packfile]=obj
+        #sha1 = hashlib.sha1(types[obj_type].lower()+f" {len(cont)}\0".encode()+cont).hexdigest()
+        #od[offset_in_packfile]=sha1
+        #contents[sha1]=cont
+        #obj_types[sha1]=obj_type
+        #print(f'{sha1} {types[obj_type]} {length} {f.tell()-offset_in_packfile} {offset_in_packfile}')#,end="")
+        #write_object(types[obj_type].lower()+f" {len(cont)}\0".encode()+cont,"test_dir/")
+        write_object(Obj.file(obj.type,obj.content),"test_dir/")
+        #print(types[obj_type],cont)
+        #cat_file(types[obj_type],cont)
+        print(obj)
+        obj.print()
+    #checkout("b76748386b277ead1d1a473655acc621288e4ff1",contents,obj_types)
 exit(0)
 #7a004b59311d7ff9bb2fb32de5c23d523034c5d6 commit 230 157 12
 #2ed99a4a46a26fc7dd29f7749424a3bedae44c19 commit 182 126 169
