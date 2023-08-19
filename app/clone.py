@@ -26,6 +26,60 @@ from dataclasses import dataclass, field
 #file = ".git/objects/pack/pack-6e797c86f303c7323056431875af4eefea332fe7.pack"
 types = [b"ERROR",b"COMMIT",b"TREE",b"BLOB",b"TAG",b"ERROR",b"OFS_DELTA",b"REF_DELTA"]
 
+@dataclass
+class Obj:
+    type: bytes
+    content: str
+    sha1: int = 0    
+    def __post_init__(self):
+        self.sha1 = Obj.hash(self.type,self.content)
+
+    @staticmethod
+    def header(type,content):
+        return types[type].lower()+f" {len(content)}\0".encode()
+
+    @staticmethod
+    def hash(type,content):
+        return hashlib.sha1(Obj.header(type,content)+content).hexdigest()
+
+    def print(self):
+        print(self.content.decode())
+
+def gen_obj():
+    pass
+
+@dataclass
+class Ofs_delta(Obj):
+    pass
+
+@dataclass
+class Blob(Obj):
+    pass
+
+@dataclass
+class Tree(Obj):
+    objs: list = field(default_factory=list)
+    def __post_init__(self):
+        super.__post_init__()
+        s = self.content
+        while s:
+            mode, s = s.split(b" ", maxsplit=1)
+            mode = mode.decode()
+            path, s = s.split(b"\0", maxsplit=1)
+            path = path.decode()
+            sha1, s = int.from_bytes(s[:20], byteorder="big"), s[20:]
+            self.objs.append([mode,path,sha1])
+
+    def print(self):
+        for mode,path,sha1 in self.objs:
+            print(f'{mode:0>6} {sha1:x} {path}')
+
+@dataclass
+class Commit(Obj):
+    tree : str = ""
+    def __post_init__(self):
+        self.tree = self.content.split(b" ")[1]
+
 def cat_file(kind,s):
     if kind == b"blob" or kind == b"BLOB":
         print(s.decode(), end="")
@@ -43,29 +97,8 @@ def cat_file(kind,s):
     else:
         print(s, end="")
 
-def create(base,contents,obj_types):
-    if kind == b"blob" or kind == b"BLOB":
-        #print(s.decode(), end="")
-        pass
-    elif kind == b"tree" or kind == b"TREE":
-        while s:
-            mode, s = s.split(b" ", maxsplit=1)
-            mode = mode.decode()
-            path, s = s.split(b"\0", maxsplit=1)
-            path = path.decode()
-            sha1, s = int.from_bytes(s[:20], byteorder="big"), s[20:]
-            #print(f'{mode:0>6} {sha1:x} {path}')
-            # print(format(int(mode.decode(),8),'06o'),format(sha1,'x'),path.decode())
-    elif kind == b"commit" or kind == b"COMMIT":
-        return s.split(b" ")[1]
-        #print(s.decode(), end="")
-    else:
-        pass
-        #print(s, end="")
-
 def checkout(commit,contents,obj_types):
     tree_sha1 = contents[commit].split(b" ")[1]
-
     pass
 
 def write_object(cont,base="."): # write file to git database and return sha1
@@ -90,15 +123,6 @@ def decode_offset(f):
         msb = (byte >> 7) & 1
     print("off:",bin(off))
     return off
-
-@dataclass
-class Tree:
-    type: bytes
-    num: int
-    offset: int
-    freeblock: bytes = 0
-    def __post_init__(self):
-        pass
 
 def decode_size(f):
     byte = unpack("!B",f.read(1))[0]
