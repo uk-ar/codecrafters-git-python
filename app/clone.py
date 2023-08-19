@@ -75,7 +75,8 @@ class Tree(Obj):
 class Commit(Obj):
     tree : str = ""
     def __post_init__(self):
-        self.tree = self.content.split(b" ")[1]
+        super().__post_init__()
+        self.tree = self.content.split(b"\n")[0].split(b" ")[1].decode()
 
 def cat_file(type,s):
     if type == b"blob" or type == b"BLOB":
@@ -93,10 +94,6 @@ def cat_file(type,s):
         print(s.decode(), end="")
     else:
         print(s, end="")
-
-def checkout(commit,contents,obj_types):
-    tree_sha1 = contents[commit].split(b" ")[1]
-    pass
 
 def write_object(cont,base="."): # write file to git database and return sha1
     sha1 = hashlib.sha1(cont).hexdigest()
@@ -223,18 +220,39 @@ def read_obj(f, offset_objs):
     return gen_obj(obj_type,cont)
     #print(bytes_io.read().hex())
 
+def checkout(obj,sha1_objs,path):
+    if types[obj.type]==b"BLOB":
+        with open(path,"wb") as f:
+            f.write(obj.content)
+            return
+    os.makedirs(path, exist_ok=True)
+    for mode,name,sha1 in obj.objs:
+        #print(f'{mode:0>6} {sha1:x} {path}') 
+        checkout(sha1_objs[f"{sha1:x}"],sha1_objs,path+"/"+name)
+    #tree_sha1 = contents[commit].split(b" ")[1]
+
 with open(file, "rb") as f:
     sig,version,num = unpack("!4sii",f.read(12)) # ! means big endian
     print(sig,version,num)
     files = []
     offset_objs = {}
+    sha1_objs = {}
     for _ in range(num):
         offset_in_packfile = f.tell()
         obj = read_obj(f,offset_objs)
+        #print(obj)
         offset_objs[offset_in_packfile]=obj
+        sha1_objs[obj.sha1]=obj
+
         write_object(Obj.file(obj.type,obj.content),"test_dir/")
+        print(obj)
         obj.print()
-    #checkout("b76748386b277ead1d1a473655acc621288e4ff1",contents,obj_types)
+    [print("---",k,v) for k,v in sha1_objs.items()]
+    #print("sha1:",sha1_objs)
+    print(sha1_objs["b76748386b277ead1d1a473655acc621288e4ff1"])
+    tree = sha1_objs[sha1_objs["b76748386b277ead1d1a473655acc621288e4ff1"].tree]
+    checkout(tree,sha1_objs,"test_dir")
+
 exit(0)
 #7a004b59311d7ff9bb2fb32de5c23d523034c5d6 commit 230 157 12
 #2ed99a4a46a26fc7dd29f7749424a3bedae44c19 commit 182 126 169

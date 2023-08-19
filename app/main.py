@@ -116,7 +116,7 @@ def main():
         os.makedirs(dir, exist_ok=True)
         init(dir)
         subprocess.call("ls")
-        # r = requests.get(url+"/info/refs?service=git-upload-pack")
+        r = requests.get(url+"/info/refs?service=git-upload-pack")
         
         #print(write_tree("./"))
     elif command == "commit-tree":
