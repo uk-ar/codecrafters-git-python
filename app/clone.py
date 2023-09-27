@@ -28,8 +28,8 @@ types = [b"ERROR",b"COMMIT",b"TREE",b"BLOB",b"TAG",b"ERROR",b"OFS_DELTA",b"REF_D
 
 @dataclass
 class Obj:
-    type: bytes
-    content: str
+    type: int
+    content: bytes
     sha1: int = 0    
     def __post_init__(self):
         self.sha1 = Obj.hash(self.type,self.content)
@@ -43,7 +43,8 @@ class Obj:
         return hashlib.sha1(Obj.file(type,content)).hexdigest()
 
     def print(self):
-        print(self.content.decode())
+        print(types[self.type])
+        print(self.content)
 
 @dataclass
 class Ofs_delta(Obj):
@@ -137,7 +138,7 @@ od = OrderedDict() # offset to sha1
 contents = {}
 obj_types = {}
 
-def gen_obj(type_num,content):
+def gen_obj(type_num : int ,content : bytes):
     if types[type_num] == b"BLOB":
         return Blob(type_num,content)
     elif types[type_num] == b"TREE":
@@ -232,6 +233,12 @@ def checkout(obj,sha1_objs,path):
         checkout(sha1_objs[f"{sha1:x}"],sha1_objs,path+"/"+name)
     #tree_sha1 = contents[commit].split(b" ")[1]
 
+def peek(byte_io, n):
+    ori = byte_io.tell()
+    ans = byte_io.read(n)
+    byte_io.seek(ori)
+    return ans
+
 def download(url):
     def add_length(s):
         s += b'\n'
@@ -272,7 +279,7 @@ def download(url):
         line, s = s[:length], s[length:]
         if line == b"NAK\n":
             break
-    
+    f = open('temp',mode='wb')
     while s:
         #length = int(bytes_io.read(4),base=16)-4
         length, s = int(s[:4], base=16)-4, s[4:]
@@ -280,28 +287,35 @@ def download(url):
             continue
         #line = bytes_io.read(length)
         line, s = s[:length], s[length:]
-        #bytes_io = io.BytesIO(line)
-        #sideband = bytes_io.read(1)
-        sideband, line = line[:1], line[1:]
+        bytes_io = io.BytesIO(line)
+        sideband = bytes_io.read(1)
+        # sideband, line = line[:1], line[1:]
         if sideband == b"\2": # progress
-            print(line.decode(), end="")
+            print(bytes_io.read().decode(), end="")
         elif sideband == b"\1":  # data
-            print(line[:30])
-            if line.startswith(b"PACK"):
-                line = line[4:]
-                version, line = line[:4], line[4:]
-                print(version)
-                num, line = int.from_bytes(line[:4], byteorder="big"), line[4:]
+            print(peek(bytes_io,30))
+            f.write(bytes_io.read())
+            #print(peek(bytes_io,4))
+            #print(bytes_io.getvalue()[:4])
+            #if peek(bytes_io,4) == b"PACK":
+                # line = line[4:]
+                #bytes_io.read(4)
+                #version = bytes_io.read(4)
+                # version, line = line[:4], line[4:]
+                #print(version)
+                #num = int.from_bytes(bytes_io.read(4), byteorder="big")
+                # num, line = int.from_bytes(line[:4], byteorder="big"), line[4:]
                 # num,line = line[:4],line[4:]
-                print(version, num, line[:10])
+                #print(version, num, bytes_io.getbuffer()[:10])
         elif sideband == b"\3":  # error
-            print(line[:10])
+            print(bytes_io.read()[:10])
 
 
 def clone(url,dir):
-    download(url)
-    exit(0)
-    with open(file, "rb") as f:
+    #download(url)
+    #f = open('temp',mode='wb')
+    #with open(file, "rb") as f:
+    with open('temp', "rb") as f:
         sig,version,num = unpack("!4sii",f.read(12)) # ! means big endian
         print(sig,version,num)
 
