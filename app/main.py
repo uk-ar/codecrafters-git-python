@@ -28,7 +28,7 @@ def hash_object(file): # write file to git database and return sha1
 # 040000 tree 681a0256c5949eb40b927539f040092f453546ca    c
 
 
-def write_tree(path):  # return sha1
+def write_tree(path):  # write file & directory to git database and return sha1
     if os.path.isfile(path):
         return hash_object(path)
     contents = sorted(os.listdir(path),

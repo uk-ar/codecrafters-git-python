@@ -21,6 +21,8 @@ import io
 from struct import unpack
 from collections import OrderedDict
 from dataclasses import dataclass, field
+from typing import Union, List, Dict
+
 #".git/objects/pack/pack-1b3414d8dcf88f8de78a61a7a8264d379c711e85.pack"
 
 #file = ".git/objects/pack/pack-6e797c86f303c7323056431875af4eefea332fe7.pack"
@@ -29,26 +31,32 @@ types = [b"ERROR",b"COMMIT",b"TREE",b"BLOB",b"TAG",b"ERROR",b"OFS_DELTA",b"REF_D
 @dataclass
 class Obj:
     type: int
-    content: bytes
-    sha1: int = 0    
-    def __post_init__(self):
-        self.sha1 = Obj.hash(self.type,self.content)
+    raw: bytes
+    # sha1: int = 0    
+    # def __post_init__(self):
+    #     self.sha1 = Obj.hash(self.type,self.raw)
+    def sha1(self) -> int:
+        return Obj.hash(self.type, self.raw)
 
     @staticmethod
-    def file(type,content):
+    def file(type, content) -> str:
         return types[type].lower()+f" {len(content)}\0".encode()+content
 
     @staticmethod
-    def hash(type,content):
+    def hash(type, content) -> str:
         return hashlib.sha1(Obj.file(type,content)).hexdigest()
 
     def print(self):
         print(types[self.type])
-        print(self.content)
+        print(self.raw)
+    
+    def content(self):
+        return self.raw
 
 @dataclass
 class Ofs_delta(Obj):
-    pass
+    def content(self):
+        return self.raw
 
 @dataclass
 class Blob(Obj):
@@ -56,28 +64,33 @@ class Blob(Obj):
 
 @dataclass
 class Tree(Obj):
-    objs: list = field(default_factory=list)
-    def __post_init__(self):
-        super().__post_init__()
-        s = self.content
+    # objs: list = field(default_factory=list)
+    #def __post_init__(self):
+    #    super().__post_init__()    
+    
+    def children(self):
+        s = self.raw
+        objs = []
         while s:
             mode, s = s.split(b" ", maxsplit=1)
             mode = mode.decode()
             path, s = s.split(b"\0", maxsplit=1)
             path = path.decode()
             sha1, s = int.from_bytes(s[:20], byteorder="big"), s[20:]
-            self.objs.append([mode,path,sha1])
+            objs.append([mode,path,sha1])
+        return objs
 
     def print(self):
-        for mode,path,sha1 in self.objs:
+        for mode,path,sha1 in self.children():
             print(f'{mode:0>6} {sha1:x} {path}')
 
 @dataclass
 class Commit(Obj):
-    tree : str = ""
-    def __post_init__(self):
-        super().__post_init__()
-        self.tree = self.content.split(b"\n")[0].split(b" ")[1].decode()
+    # tree : str = ""
+    #def __post_init__(self):
+    #    super().__post_init__()
+    def tree(self):
+        self.raw.split(b"\n")[0].split(b" ")[1].decode()
 
 def cat_file(type,s):
     if type == b"blob" or type == b"BLOB":
@@ -192,8 +205,9 @@ def read_obj(f, offset_objs):
     after = decode_size(bytes_io)
     before = decode_size(bytes_io)
     print(f"before:{before},after:{after}")
-    inst = bytes_io.read(1)
+    inst = bytes_io.read(1)    
     cont = b""
+    return gen_obj(obj_type,cont)
     #contents[sha1]
     while inst:
         inst = int.from_bytes(inst,byteorder="big")
@@ -228,7 +242,7 @@ def checkout(obj,sha1_objs,path):
             f.write(obj.content)
             return
     os.makedirs(path, exist_ok=True)
-    for mode,name,sha1 in obj.objs:
+    for mode,name,sha1 in obj.children():
         #print(f'{mode:0>6} {sha1:x} {path}') 
         checkout(sha1_objs[f"{sha1:x}"],sha1_objs,path+"/"+name)
     #tree_sha1 = contents[commit].split(b" ")[1]
@@ -239,17 +253,30 @@ def peek(byte_io, n):
     byte_io.seek(ori)
     return ans
 
-def download(url):
+def download_obj(url: str, sha1s: list):
     def add_length(s):
         s += b'\n'
         return format(len(s)+4, '04x').encode()+s
 
+    data = add_length(b"want "+sha1s[-1]+b" multi_ack side-band-64k ofs-delta")# last elem
+    data += b"\n".join([add_length(b"want "+sha1) for sha1 in sha1s[:1]])
+    data += b"0000"
+    data += add_length(b"done")
+    # print(data)
+
+    r = requests.post(url+"/git-upload-pack", data=data)
+    # print(r)
+    s = r.content
+    return s
+
+def download(url):
     #url = "https://github.com/codecrafters-io/git-sample-1"
     r = requests.get(url+"/info/refs?service=git-upload-pack")
     s = r.content
     version, s = s.split(b"\n", maxsplit=1)
     print(s)
     sha1s = []
+    head = ""
     while s:
         length, s = int(s[:4], base=16)-4, s[4:]
         if length <= 0:
@@ -258,18 +285,11 @@ def download(url):
         sha1, ref = line[:40], line[40:].strip()
         if ref.startswith(b"HEAD\0"):
             ref = b"HEAD"
+            head = sha1
         print(sha1, ref)
         sha1s.append(sha1)
-
-    data = add_length(b"want "+sha1+b" multi_ack side-band-64k ofs-delta")
-    data += b"\n".join([add_length(b"want "+sha1) for sha1 in sha1s[:1]])
-    data += b"0000"
-    data += add_length(b"done")
-    #print(b"foo\rbar".decode())
-
-    r = requests.post(url+"/git-upload-pack", data=data)
-    # print(r)
-    s = r.content
+    
+    s = download_obj(url, sha1s)
 
     # skip until "NAK"
     while s:
@@ -295,27 +315,42 @@ def download(url):
         elif sideband == b"\1":  # data
             print(peek(bytes_io,30))
             f.write(bytes_io.read())
-            #print(peek(bytes_io,4))
-            #print(bytes_io.getvalue()[:4])
-            #if peek(bytes_io,4) == b"PACK":
-                # line = line[4:]
-                #bytes_io.read(4)
-                #version = bytes_io.read(4)
-                # version, line = line[:4], line[4:]
-                #print(version)
-                #num = int.from_bytes(bytes_io.read(4), byteorder="big")
-                # num, line = int.from_bytes(line[:4], byteorder="big"), line[4:]
-                # num,line = line[:4],line[4:]
-                #print(version, num, bytes_io.getbuffer()[:10])
         elif sideband == b"\3":  # error
             print(bytes_io.read()[:10])
+    return head
 
+def parse_packfile(path : str) -> Dict[str, Obj]:
+    with open(path, "rb") as f:
+    #with open('git-sample-1/.git/objects/pack/pack-3ecee16c7a12cdbf9f9711479eace054d9e59d8b.pack', "rb") as f:
+        sig,version,num = unpack("!4sii",f.read(12)) # ! means big endian
+        print(sig,version,num)
+
+        offset_objs = {} # Can assume to be included in the same file?
+        sha1_objs = {}
+        for _ in range(num):
+            offset_in_packfile = f.tell()
+            obj = read_obj(f,offset_objs)
+            #print(obj)
+            offset_objs[offset_in_packfile]=obj
+            sha1_objs[obj.sha1()]=obj
+
+            # write_object(Obj.file(obj.type,obj.content),"test_dir/")
+            # print(obj.sha1(), obj)
+            # obj.print()
+        return sha1_objs
+        #[print("--sha1_objs--",k,v) for k,v in sha1_objs.items()]
+        #print("sha1:",sha1_objs)
+        #print(sha1_objs["b76748386b277ead1d1a473655acc621288e4ff1"])
+        #tree = sha1_objs[sha1_objs["b76748386b277ead1d1a473655acc621288e4ff1"].tree]
+        tree = sha1_objs[sha1_objs[head].tree]    
 
 def clone(url,dir):
-    #download(url)
+    head = download(url).decode()
+    #return 0
     #f = open('temp',mode='wb')
     #with open(file, "rb") as f:
-    with open('temp', "rb") as f:
+    #with open('./temp', "rb") as f:
+    with open('git-sample-1/.git/objects/pack/pack-3ecee16c7a12cdbf9f9711479eace054d9e59d8b.pack', "rb") as f:
         sig,version,num = unpack("!4sii",f.read(12)) # ! means big endian
         print(sig,version,num)
 
@@ -327,15 +362,20 @@ def clone(url,dir):
             obj = read_obj(f,offset_objs)
             #print(obj)
             offset_objs[offset_in_packfile]=obj
-            sha1_objs[obj.sha1]=obj
+            sha1_objs[obj.sha1()]=obj
 
             write_object(Obj.file(obj.type,obj.content),"test_dir/")
             print(obj)
             obj.print()
-        [print("---",k,v) for k,v in sha1_objs.items()]
+        [print("--sha1_objs--",k,v) for k,v in sha1_objs.items()]
         #print("sha1:",sha1_objs)
-        print(sha1_objs["b76748386b277ead1d1a473655acc621288e4ff1"])
-        tree = sha1_objs[sha1_objs["b76748386b277ead1d1a473655acc621288e4ff1"].tree]
+        #print(sha1_objs["b76748386b277ead1d1a473655acc621288e4ff1"])
+        #tree = sha1_objs[sha1_objs["b76748386b277ead1d1a473655acc621288e4ff1"].tree]
+        tree = sha1_objs[sha1_objs[head].tree()]
         checkout(tree,sha1_objs,"test_dir")
 
-clone("https://github.com/codecrafters-io/git-sample-1","test_dir")
+# clone("https://github.com/codecrafters-io/git-sample-1","test_dir")
+
+for sha1,obj in parse_packfile("test_in/.git/objects/pack/pack-d1c4391995453202c1fdf16351cc7c66d126be14.pack").items():
+    obj.print()    
+#print(parse_packfile("git-sample-1/.git/objects/pack/pack-3ecee16c7a12cdbf9f9711479eace054d9e59d8b.pack"))
