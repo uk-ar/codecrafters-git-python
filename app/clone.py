@@ -32,10 +32,7 @@ types = [b"ERROR",b"COMMIT",b"TREE",b"BLOB",b"TAG",b"ERROR",b"OFS_DELTA",b"REF_D
 class Obj:
     type: int
     raw: bytes
-    # sha1: int = 0    
-    # def __post_init__(self):
-    #     self.sha1 = Obj.hash(self.type,self.raw)
-    def sha1(self) -> int:
+    def sha1(self) -> str:
         return Obj.hash(self.type, self.raw)
 
     @staticmethod
@@ -53,21 +50,29 @@ class Obj:
     def content(self):
         return self.raw
 
+    def size_in_packfile(self):
+        return len(self.raw)
+    
+    def size(self):
+        return len(self.content())
+    
+    def verify(self):
+        print(f'{self.sha1()} {types[self.type].decode().lower()} {self.size()} {self.size_in_packfile()}')
+    
+    def cat_file(self):
+        print(self.raw.decode())
+
 @dataclass
 class Ofs_delta(Obj):
     def content(self):
-        return self.raw
+        return "self.raw"
 
 @dataclass
 class Blob(Obj):
     pass
 
 @dataclass
-class Tree(Obj):
-    # objs: list = field(default_factory=list)
-    #def __post_init__(self):
-    #    super().__post_init__()    
-    
+class Tree(Obj):    
     def children(self):
         s = self.raw
         objs = []
@@ -82,32 +87,17 @@ class Tree(Obj):
 
     def print(self):
         for mode,path,sha1 in self.children():
-            print(f'{mode:0>6} {sha1:x} {path}')
+            print(f'{mode:0>6} {sha1:040x} {path}')
+
+    def cat_file(self):
+        kind = {"40000":"tree", "100644":"blob", "160000":"commit"}
+        for mode,path,sha1 in self.children():
+            print(f'{mode:0>6} {kind[mode]} {sha1:040x} {path}')        
 
 @dataclass
 class Commit(Obj):
-    # tree : str = ""
-    #def __post_init__(self):
-    #    super().__post_init__()
     def tree(self):
         self.raw.split(b"\n")[0].split(b" ")[1].decode()
-
-def cat_file(type,s):
-    if type == b"blob" or type == b"BLOB":
-        print(s.decode(), end="")
-    elif type == b"tree" or type == b"TREE":
-        while s:
-            mode, s = s.split(b" ", maxsplit=1)
-            mode = mode.decode()
-            path, s = s.split(b"\0", maxsplit=1)
-            path = path.decode()
-            sha1, s = int.from_bytes(s[:20], byteorder="big"), s[20:]
-            print(f'{mode:0>6} {sha1:x} {path}')
-            # print(format(int(mode.decode(),8),'06o'),format(sha1,'x'),path.decode())
-    elif type == b"commit" or type == b"COMMIT":
-        print(s.decode(), end="")
-    else:
-        print(s, end="")
 
 def write_object(cont,base="."): # write file to git database and return sha1
     sha1 = hashlib.sha1(cont).hexdigest()
@@ -377,5 +367,6 @@ def clone(url,dir):
 # clone("https://github.com/codecrafters-io/git-sample-1","test_dir")
 
 for sha1,obj in parse_packfile("test_in/.git/objects/pack/pack-d1c4391995453202c1fdf16351cc7c66d126be14.pack").items():
-    obj.print()    
+    #obj.cat_file()
+    obj.verify()
 #print(parse_packfile("git-sample-1/.git/objects/pack/pack-3ecee16c7a12cdbf9f9711479eace054d9e59d8b.pack"))
