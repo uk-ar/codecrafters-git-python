@@ -32,6 +32,9 @@ types = [b"ERROR",b"COMMIT",b"TREE",b"BLOB",b"TAG",b"ERROR",b"OFS_DELTA",b"REF_D
 class Obj:
     type: int
     raw: bytes
+    offset_in_packfile : int = None
+    size_in_packfile : int = None
+
     def sha1(self) -> str:
         return Obj.hash(self.type, self.raw)
 
@@ -49,23 +52,19 @@ class Obj:
     
     def content(self):
         return self.raw
-
-    def size_in_packfile(self):
-        return len(self.raw)
     
     def size(self):
         return len(self.content())
     
     def verify(self):
-        print(f'{self.sha1()} {types[self.type].decode().lower()} {self.size()} {self.size_in_packfile()}')
+        print(f'{self.sha1()} {types[self.type].decode().lower()} {self.size()} {self.size_in_packfile} {self.offset_in_packfile}')
     
     def cat_file(self):
         print(self.raw.decode())
 
 @dataclass
 class Ofs_delta(Obj):
-    def content(self):
-        return "self.raw"
+    pass
 
 @dataclass
 class Blob(Obj):
@@ -141,15 +140,18 @@ od = OrderedDict() # offset to sha1
 contents = {}
 obj_types = {}
 
-def gen_obj(type_num : int ,content : bytes):
+def gen_obj(type_num : int ,content : bytes, offset_in_packfile : int, size_in_packfile : int):
+    print("off",offset_in_packfile)
     if types[type_num] == b"BLOB":
-        return Blob(type_num,content)
+        return Blob(type_num,content,offset_in_packfile,size_in_packfile)
     elif types[type_num] == b"TREE":
-        return Tree(type_num,content)
+        return Tree(type_num,content,offset_in_packfile,size_in_packfile)
     elif types[type_num] == b"COMMIT":
-        return Commit(type_num,content)
+        return Commit(type_num,content,offset_in_packfile,size_in_packfile)
+    elif types[type_num] == b"OFS_DELTA":
+        return Ofs_delta(type_num,content,offset_in_packfile,size_in_packfile)
     else:
-        return Obj(type_num,content)
+        return Obj(type_num,content,offset_in_packfile,size_in_packfile)
 
 def read_obj(f, offset_objs):
     offset_in_packfile = f.tell()
@@ -179,12 +181,14 @@ def read_obj(f, offset_objs):
             cont += decomp.decompress(chunk)
             chunk = decomp.unconsumed_tail
         f.seek(-len(decomp.unused_data),os.SEEK_CUR)# from current
-    if types[obj_type]!=b"OFS_DELTA":
-        return gen_obj(obj_type,cont)
 
-    ref_obj = offset_objs[offset_in_packfile-off]
+    if types[obj_type]!=b"OFS_DELTA":
+        return gen_obj(obj_type,cont,offset_in_packfile,f.tell()-offset_in_packfile)
+    
+    ref_obj = offset_objs[offset_in_packfile-off]    
     ref      = ref_obj.content
-    obj_type = ref_obj.type
+    # obj_type = ref_obj.type
+    return gen_obj(obj_type,cont,offset_in_packfile,f.tell()-offset_in_packfile)
     # ref_sha1 = od[offset_in_packfile-off]
     # ref = contents[ref_sha1]
     # obj_type = obj_types[ref_sha1]
@@ -192,12 +196,13 @@ def read_obj(f, offset_objs):
     # print(cont.hex())
     # before,after = unpack("HH",cont[:4])
     bytes_io = io.BytesIO(cont)
+    
     after = decode_size(bytes_io)
     before = decode_size(bytes_io)
     print(f"before:{before},after:{after}")
     inst = bytes_io.read(1)    
     cont = b""
-    return gen_obj(obj_type,cont)
+    #return gen_obj(obj_type,cont,offset_in_packfile,f.tell()-offset_in_packfile)
     #contents[sha1]
     while inst:
         inst = int.from_bytes(inst,byteorder="big")
@@ -223,7 +228,7 @@ def read_obj(f, offset_objs):
         print(cont)
         inst = bytes_io.read(1)
 
-    return gen_obj(obj_type,cont)
+    return gen_obj(obj_type,cont, offset_in_packfile)
     #print(bytes_io.read().hex())
 
 def checkout(obj,sha1_objs,path):
@@ -318,10 +323,9 @@ def parse_packfile(path : str) -> Dict[str, Obj]:
         offset_objs = {} # Can assume to be included in the same file?
         sha1_objs = {}
         for _ in range(num):
-            offset_in_packfile = f.tell()
+            #offset_in_packfile = f.tell()
             obj = read_obj(f,offset_objs)
-            #print(obj)
-            offset_objs[offset_in_packfile]=obj
+            offset_objs[obj.offset_in_packfile]=obj
             sha1_objs[obj.sha1()]=obj
 
             # write_object(Obj.file(obj.type,obj.content),"test_dir/")
