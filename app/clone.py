@@ -69,6 +69,7 @@ class Obj:
 class Ofs_delta(Obj):
     ref_obj : Obj
     def type(self):
+        #return self.typ
         return self.ref_obj.type()
     def content(self):
         ref      = self.ref_obj.content()
@@ -77,41 +78,45 @@ class Ofs_delta(Obj):
 
         after = decode_size(bytes_io)
         before = decode_size(bytes_io)
-        print(f"before:{before},after:{after}")
+        #print(f"before:{before},after:{after}")
         inst = bytes_io.read(1)    
         cont = b""
         while inst:
             inst = int.from_bytes(inst,byteorder="big")
-            print(f"{inst:08b}")
-            ops  = [-1]*7
+            # print(f"{inst:08b}")
+            # ops  = [0]*7
             if inst == 0: # reserved
                 pass            
             elif (inst >> 7) & 1: # copy operation
-                print("copy")
-                for i in range(6):
+                #print("copy")
+                #print(f"{inst:b}")
+                offset = 0
+                for i in range(4):#for offset
+                    #offset <<= 8
                     if (inst >> i ) & 1:
-                        #ops[i] = decode_size(bytes_io)
-                        ops[i] = int.from_bytes(bytes_io.read(1),byteorder="little")
+                        offset |= int.from_bytes(bytes_io.read(1),byteorder="little") << (8*i)
+                        #print("off:",i,offset)
                         #1sssoooo
                         # 3214321
                         #[offset1,offset2,offset3,offset4,size1,size2,size3]
+                size = 0
+                inst >>= 4
                 for i in range(3):
-                    if ops[i]!=-1 or ops[i+4]!=-1:
-                        if ops[i]==-1:
-                            ops[i]=0
-                        if ops[i+4]==-1:
-                            ops[i+4]=0x10000
-                    cont += ref[ops[i]:ops[i]+ops[i+4]]
-                    #print("-----",i)
-                    #print(cont.decode())
-                    #print("-----")                    
-                if ops[3]!=-1:
-                    cont += ref[ops[3]:ops[3]+0x10000]
-                    #print("-----","ops3")
-                    #print(cont.decode())
-                    #print("-----")      
+                    #size <<= 8
+                    if (inst >> i) & 1:
+                        size |= int.from_bytes(bytes_io.read(1),byteorder="little") << (8*i)
+                        #print("size:",i,size)
+                #if size == 0:
+                #    size = 0x10000
+                #for i in range(3):
+                #cont += ref[ops[i]:ops[i]+ops[i+4]]
+                #print("slice:",offset,offset+size)
+                cont += ref[offset:(offset+size)]
+                #print("-----",i)
+                #print(cont.decode())
+                #print("-----")                       
             else: # add operation
-                print("add")
+                #print("add")
                 size = inst & ((1<<7)-1)
                 cont += bytes_io.read(size)
             inst = bytes_io.read(1)
@@ -393,4 +398,5 @@ for sha1,obj in parse_packfile(sys.argv[1]).items():
 #for sha1,obj in parse_packfile("test_in/.git/objects/pack/pack-d1c4391995453202c1fdf16351cc7c66d126be14.pack").items():
     #obj.cat_file()
     print(obj.verify())
+    #print(obj.cat_file())
 #print(parse_packfile("git-sample-1/.git/objects/pack/pack-3ecee16c7a12cdbf9f9711479eace054d9e59d8b.pack"))
