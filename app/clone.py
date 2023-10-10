@@ -10,7 +10,7 @@
 # non delta: 6 objects
 # .git/objects/pack/pack-dcb42ab2f64d6f9c58d4c3b74152cee3608612a9.pack: ok
 
-
+import sys
 import requests
 import zlib
 import hashlib
@@ -30,13 +30,16 @@ types = [b"ERROR",b"COMMIT",b"TREE",b"BLOB",b"TAG",b"ERROR",b"OFS_DELTA",b"REF_D
 
 @dataclass
 class Obj:
-    type: int
+    typ: int
     raw: bytes
-    offset_in_packfile : int = None
-    size_in_packfile : int = None
+    offset_in_packfile : int
+    size_in_packfile : int
+
+    def type(self) -> int:
+        return self.typ
 
     def sha1(self) -> str:
-        return Obj.hash(self.type, self.raw)
+        return Obj.hash(self.type(), self.content())
 
     @staticmethod
     def file(type, content) -> str:
@@ -47,24 +50,66 @@ class Obj:
         return hashlib.sha1(Obj.file(type,content)).hexdigest()
 
     def print(self):
-        print(types[self.type])
+        print(types[self.type()])
         print(self.raw)
     
     def content(self):
         return self.raw
     
-    def size(self):
-        return len(self.content())
+    def get_size(self):
+        return len(self.raw)
     
     def verify(self):
-        print(f'{self.sha1()} {types[self.type].decode().lower()} {self.size()} {self.size_in_packfile} {self.offset_in_packfile}')
+        return f'{self.sha1()} {types[self.type()].decode().lower(): <6} {self.get_size()} {self.size_in_packfile} {self.offset_in_packfile}'
     
     def cat_file(self):
         print(self.raw.decode())
 
 @dataclass
 class Ofs_delta(Obj):
-    pass
+    ref_obj : Obj
+    def type(self):
+        return self.ref_obj.type()
+    def content(self):
+        ref      = self.ref_obj.content()
+        # obj_type = ref_obj.type
+        bytes_io = io.BytesIO(self.raw)        
+
+        after = decode_size(bytes_io)
+        before = decode_size(bytes_io)
+        #print(f"before:{before},after:{after}")
+        inst = bytes_io.read(1)    
+        cont = b""
+        while inst:
+            inst = int.from_bytes(inst,byteorder="big")
+            ops  = [-1]*7
+            if inst == 0: # reserved
+                pass
+            elif (inst >> 7) & 1:
+                for i in range(6):
+                    if (inst >> i ) & 1:
+                        ops[i] = decode_size(bytes_io)
+                for i in range(3):
+                    if ops[i]!=-1 or ops[i+4]!=-1:
+                        if ops[i]==-1:
+                            ops[i]=0
+                        if ops[i+4]==-1:
+                            ops[i+4]=0x10000
+                    cont += ref[ops[i]:ops[i]+ops[i+4]]
+                if ops[3]!=-1:
+                    cont += ref[ops[3]:ops[3]+0x10000]
+            else:
+                size = inst & ((1<<7)-1)
+                cont += bytes_io.read(size)
+            #print(cont)
+            inst = bytes_io.read(1)
+        return cont        
+        #return gen_obj(obj_type,cont, offset_in_packfile)
+        #print(bytes_io.read().hex())
+        # return ""
+        #return self.raw
+    def verify(self):
+        return super().verify() +" "+ self.ref_obj.sha1()
 
 @dataclass
 class Blob(Obj):
@@ -122,12 +167,13 @@ def decode_offset(f):
     return off
 
 def decode_size(f):
-    byte = unpack("!B",f.read(1))[0]
+    byte = int.from_bytes(f.read(1),byteorder="big")
     msb = (byte >> 7) & 1
     length = (byte & ((1<<7)-1))
     shift = 7
     while msb:
-        byte = unpack("!B",f.read(1))[0]
+        byte = int.from_bytes(f.read(1),byteorder="big")
+        #byte = unpack("!B",f.read(1))[0]
         length += (byte & ((1<<7)-1)) << shift
         msb = (byte >> 7) & 1
         shift += 7
@@ -148,8 +194,8 @@ def gen_obj(type_num : int ,content : bytes, offset_in_packfile : int, size_in_p
         return Tree(type_num,content,offset_in_packfile,size_in_packfile)
     elif types[type_num] == b"COMMIT":
         return Commit(type_num,content,offset_in_packfile,size_in_packfile)
-    elif types[type_num] == b"OFS_DELTA":
-        return Ofs_delta(type_num,content,offset_in_packfile,size_in_packfile)
+    #elif types[type_num] == b"OFS_DELTA":
+    #    return Ofs_delta(type_num,content,offset_in_packfile,size_in_packfile)
     else:
         return Obj(type_num,content,offset_in_packfile,size_in_packfile)
 
@@ -185,51 +231,8 @@ def read_obj(f, offset_objs):
     if types[obj_type]!=b"OFS_DELTA":
         return gen_obj(obj_type,cont,offset_in_packfile,f.tell()-offset_in_packfile)
     
-    ref_obj = offset_objs[offset_in_packfile-off]    
-    ref      = ref_obj.content
-    # obj_type = ref_obj.type
-    return gen_obj(obj_type,cont,offset_in_packfile,f.tell()-offset_in_packfile)
-    # ref_sha1 = od[offset_in_packfile-off]
-    # ref = contents[ref_sha1]
-    # obj_type = obj_types[ref_sha1]
-    print(f'ref:{ref}')
-    # print(cont.hex())
-    # before,after = unpack("HH",cont[:4])
-    bytes_io = io.BytesIO(cont)
-    
-    after = decode_size(bytes_io)
-    before = decode_size(bytes_io)
-    print(f"before:{before},after:{after}")
-    inst = bytes_io.read(1)    
-    cont = b""
-    #return gen_obj(obj_type,cont,offset_in_packfile,f.tell()-offset_in_packfile)
-    #contents[sha1]
-    while inst:
-        inst = int.from_bytes(inst,byteorder="big")
-        ops  = [-1]*7
-        if inst == 0: # reserved
-            pass
-        elif (inst >> 7) & 1:
-            for i in range(6):
-                if (inst >> i ) & 1:
-                    ops[i] = decode_size(bytes_io)
-            for i in range(3):
-                if ops[i]!=-1 or ops[i+4]!=-1:
-                    if ops[i]==-1:
-                        ops[i]=0
-                    if ops[i+4]==-1:
-                        ops[i+4]=0x10000
-                cont += ref[ops[i]:ops[i]+ops[i+4]]
-            if ops[3]!=-1:
-                cont += ref[ops[3]:ops[3]+0x10000]
-        else:
-            size = inst & ((1<<7)-1)
-            cont += bytes_io.read(size)
-        print(cont)
-        inst = bytes_io.read(1)
-
-    return gen_obj(obj_type,cont, offset_in_packfile)
-    #print(bytes_io.read().hex())
+    ref_obj = offset_objs[offset_in_packfile-off]
+    return Ofs_delta(obj_type,cont,offset_in_packfile,f.tell()-offset_in_packfile,ref_obj)
 
 def checkout(obj,sha1_objs,path):
     if types[obj.type]==b"BLOB":
@@ -370,7 +373,10 @@ def clone(url,dir):
 
 # clone("https://github.com/codecrafters-io/git-sample-1","test_dir")
 
-for sha1,obj in parse_packfile("test_in/.git/objects/pack/pack-d1c4391995453202c1fdf16351cc7c66d126be14.pack").items():
+
+for sha1,obj in parse_packfile(sys.argv[1]).items():
+    #for sha1,obj in parse_packfile("git-sample-1/.git/objects/pack/pack-3ecee16c7a12cdbf9f9711479eace054d9e59d8b.pack").items():
+#for sha1,obj in parse_packfile("test_in/.git/objects/pack/pack-d1c4391995453202c1fdf16351cc7c66d126be14.pack").items():
     #obj.cat_file()
-    obj.verify()
+    print(obj.verify())
 #print(parse_packfile("git-sample-1/.git/objects/pack/pack-3ecee16c7a12cdbf9f9711479eace054d9e59d8b.pack"))
