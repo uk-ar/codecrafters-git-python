@@ -102,14 +102,14 @@ class Ofs_delta(Obj):
                         if ops[i+4]==-1:
                             ops[i+4]=0x10000
                     cont += ref[ops[i]:ops[i]+ops[i+4]]
-                    print("-----",i)
-                    print(cont.decode())
-                    print("-----")                    
+                    #print("-----",i)
+                    #print(cont.decode())
+                    #print("-----")                    
                 if ops[3]!=-1:
                     cont += ref[ops[3]:ops[3]+0x10000]
-                    print("-----","ops3")
-                    print(cont.decode())
-                    print("-----")      
+                    #print("-----","ops3")
+                    #print(cont.decode())
+                    #print("-----")      
             else: # add operation
                 print("add")
                 size = inst & ((1<<7)-1)
