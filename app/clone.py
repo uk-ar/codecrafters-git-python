@@ -77,18 +77,24 @@ class Ofs_delta(Obj):
 
         after = decode_size(bytes_io)
         before = decode_size(bytes_io)
-        #print(f"before:{before},after:{after}")
+        print(f"before:{before},after:{after}")
         inst = bytes_io.read(1)    
         cont = b""
         while inst:
             inst = int.from_bytes(inst,byteorder="big")
+            print(f"{inst:08b}")
             ops  = [-1]*7
             if inst == 0: # reserved
-                pass
-            elif (inst >> 7) & 1:
+                pass            
+            elif (inst >> 7) & 1: # copy operation
+                print("copy")
                 for i in range(6):
                     if (inst >> i ) & 1:
-                        ops[i] = decode_size(bytes_io)
+                        #ops[i] = decode_size(bytes_io)
+                        ops[i] = int.from_bytes(bytes_io.read(1),byteorder="little")
+                        #1sssoooo
+                        # 3214321
+                        #[offset1,offset2,offset3,offset4,size1,size2,size3]
                 for i in range(3):
                     if ops[i]!=-1 or ops[i+4]!=-1:
                         if ops[i]==-1:
@@ -96,13 +102,21 @@ class Ofs_delta(Obj):
                         if ops[i+4]==-1:
                             ops[i+4]=0x10000
                     cont += ref[ops[i]:ops[i]+ops[i+4]]
+                    print("-----",i)
+                    print(cont.decode())
+                    print("-----")                    
                 if ops[3]!=-1:
                     cont += ref[ops[3]:ops[3]+0x10000]
-            else:
+                    print("-----","ops3")
+                    print(cont.decode())
+                    print("-----")      
+            else: # add operation
+                print("add")
                 size = inst & ((1<<7)-1)
                 cont += bytes_io.read(size)
-            #print(cont)
             inst = bytes_io.read(1)
+        #print(cont.decode())
+        #print(cont)
         return cont        
         #return gen_obj(obj_type,cont, offset_in_packfile)
         #print(bytes_io.read().hex())
@@ -187,7 +201,7 @@ contents = {}
 obj_types = {}
 
 def gen_obj(type_num : int ,content : bytes, offset_in_packfile : int, size_in_packfile : int):
-    print("off",offset_in_packfile)
+    # print("off",offset_in_packfile)
     if types[type_num] == b"BLOB":
         return Blob(type_num,content,offset_in_packfile,size_in_packfile)
     elif types[type_num] == b"TREE":
