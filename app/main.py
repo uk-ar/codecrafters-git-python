@@ -7,8 +7,6 @@ import datetime
 import subprocess
 #import app.clone
 
-print("main")
-
 def hash_object(file): # write file to git database and return sha1
     if os.path.isdir(file):
         return write_tree(file)
@@ -75,8 +73,6 @@ def init(path="."):
     with open(path + "/.git/HEAD", "w") as f:
         f.write("ref: refs/heads/master\n")
     print("Initialized git directory")
-
-print("main")
 
 def main():
     # You can use print statements as follows for debugging, they'll be visible when running tests.
