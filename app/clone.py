@@ -155,8 +155,12 @@ class Tree(Obj):
     def cat_file(self):
         kind = {"40000":"tree", "100644":"blob", "160000":"commit"}
         for mode,path,sha1 in self.children():
-            print(f'{mode:0>6} {kind[mode]} {sha1:040x} {path}')        
+            print(f'{mode:0>6} {kind[mode]} {sha1:040x} {path}')
 
+    def ls_tree(self):
+        for mode,path,sha1 in self.children():
+            print(f'{path}')
+    
 @dataclass
 class Commit(Obj):
     def tree(self):

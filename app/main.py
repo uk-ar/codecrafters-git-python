@@ -82,6 +82,7 @@ class Repo:
         #print(kind,size,s,Type[kind.decode().upper()].value)
         o = gen_obj(Type[kind.decode().upper()].value,s)
         o.cat_file()
+    
 
 def main():
     command = sys.argv[1]
