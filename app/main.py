@@ -6,22 +6,9 @@ import hashlib
 import datetime  
 import subprocess
 #import app.clone
-from app.clone import gen_obj
+from app.clone import gen_obj,Obj
 from enum import Enum
 
-def hash_object(file): # write file to git database and return sha1
-    if os.path.isdir(file):
-        return write_tree(file)
-    with open(file, "rb") as f:
-        s = f.read()
-    s = b"blob " + str(len(s)).encode()+b'\0'+s
-    sha1 = hashlib.sha1(s).hexdigest()
-    if os.path.exists(".git/objects/"+sha1[:2]+"/"+sha1[2:]):
-        return sha1
-    os.makedirs(".git/objects/"+sha1[:2], exist_ok=True)
-    with open(".git/objects/"+sha1[:2]+"/"+sha1[2:], "wb") as f:
-        f.write(zlib.compress(s))
-    return sha1
 # 100644 blob e69de29bb2d1d6434b8b29ae775ad8c2e48c5391    a.txt
 # 100644 blob 78981922613b2afb6025042ff6bd878ac1994e85    b.txt
 # 040000 tree 681a0256c5949eb40b927539f040092f453546ca    c
@@ -74,13 +61,29 @@ class Repo:
             f.write("ref: refs/heads/master\n")
         print("Initialized git directory")
     
+    def gen_path(self,sha1):
+        return f"{self.path}/.git/objects/{sha1[:2]}/{sha1[2:]}"
+
     def get_obj(self,sha1):
-        with open(f"{self.path}/.git/objects/{sha1[:2]}/{sha1[2:]}", "rb") as f:
+        with open(self.gen_path(sha1), "rb") as f:
             s = zlib.decompress(f.read())
         kind, s = s.split(b" ", maxsplit=1)
         size, s = s.split(b"\0", maxsplit=1)
-        #print(kind,size,s,Type[kind.decode().upper()].value)
-        return gen_obj(Type[kind.decode().upper()].value,s)    
+        return gen_obj(Type[kind.decode().upper()].value,s)
+    
+    def write_obj(self,obj : Obj):
+        path = self.gen_path(obj.sha1())
+        if os.path.exists(path):
+            return obj.sha1()
+        os.makedirs(os.path.dirname(path),exist_ok=True)
+        with open(path, "wb") as f:
+            f.write(zlib.compress(Obj.file(obj.type(),obj.content())))
+        return obj.sha1()
+
+def hash_file(file) -> Obj: # write file to git database and return sha1
+    #if os.path.isdir(file):
+    #    return write_tree(file)
+    return gen_obj(Type["BLOB"].value,open(file, "rb").read())
 
 def main():
     command = sys.argv[1]
@@ -91,7 +94,8 @@ def main():
         repo = Repo("./")
         repo.get_obj(sha1).cat_file()
     elif command == "hash-object":
-        print(write_tree(sys.argv[3]))
+        file = sys.argv[3]
+        print(Repo("./").write_obj(hash_file(file)))
     elif command == "ls-tree":
         sha1 = sys.argv[3]
         with open(".git/objects/"+sha1[:2]+"/"+sha1[2:], "rb") as f:
