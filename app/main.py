@@ -5,8 +5,7 @@ import hashlib
 # from sys import byteorder
 import datetime  
 import subprocess
-#import clone
-import app.clone
+#import app.clone
 
 print("main")
 

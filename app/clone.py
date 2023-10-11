@@ -338,21 +338,15 @@ def download(url):
 
 def parse_packfile(path : str) -> Dict[str, Obj]:
     with open(path, "rb") as f:
-    #with open('git-sample-1/.git/objects/pack/pack-3ecee16c7a12cdbf9f9711479eace054d9e59d8b.pack', "rb") as f:
         sig,version,num = unpack("!4sii",f.read(12)) # ! means big endian
         print(sig,version,num)
 
         offset_objs = {} # Can assume to be included in the same file?
         sha1_objs = {}
         for _ in range(num):
-            #offset_in_packfile = f.tell()
             obj = read_obj(f,offset_objs)
             offset_objs[obj.offset_in_packfile]=obj
             sha1_objs[obj.sha1()]=obj
-
-            # write_object(Obj.file(obj.type,obj.content),"test_dir/")
-            # print(obj.sha1(), obj)
-            # obj.print()
         return sha1_objs
         #[print("--sha1_objs--",k,v) for k,v in sha1_objs.items()]
         #print("sha1:",sha1_objs)
@@ -392,11 +386,10 @@ def clone(url,dir):
 
 # clone("https://github.com/codecrafters-io/git-sample-1","test_dir")
 
-
-for sha1,obj in parse_packfile(sys.argv[1]).items():
-    #for sha1,obj in parse_packfile("git-sample-1/.git/objects/pack/pack-3ecee16c7a12cdbf9f9711479eace054d9e59d8b.pack").items():
-#for sha1,obj in parse_packfile("test_in/.git/objects/pack/pack-d1c4391995453202c1fdf16351cc7c66d126be14.pack").items():
-    #obj.cat_file()
-    print(obj.verify())
+packfile = sys.argv[1]
+dst_dir  = sys.argv[2]
+for sha1,obj in parse_packfile(packfile).items():
+    write_object(Obj.file(obj.type(),obj.content()),dst_dir)
+checkout(tree,sha1_objs,dst_dir)
+    #print(obj.verify())
     #print(obj.cat_file())
-#print(parse_packfile("git-sample-1/.git/objects/pack/pack-3ecee16c7a12cdbf9f9711479eace054d9e59d8b.pack"))
