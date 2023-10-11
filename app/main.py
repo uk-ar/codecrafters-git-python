@@ -6,6 +6,8 @@ import hashlib
 import datetime  
 import subprocess
 #import app.clone
+from app.clone import gen_obj
+from enum import Enum
 
 def hash_object(file): # write file to git database and return sha1
     if os.path.isdir(file):
@@ -51,48 +53,44 @@ def write_tree(path):  # write file & directory to git database and return sha1
         f.write(zlib.compress(s))
     return sha1
 
-def cat_file(kind,s):
-    if kind == b"blob":
-        print(s.decode(), end="")
-    elif kind == b"tree":
-        while s:
-            mode, s = s.split(b" ", maxsplit=1)
-            path, s = s.split(b"\0", maxsplit=1)
-            sha1, s = int.from_bytes(s[:20], byteorder="big"), s[20:]
-            print(mode, format(sha1, 'x'), path.decode())
-            # print(format(int(mode.decode(),8),'06o'),format(sha1,'x'),path.decode())
-    elif kind == b"commit":
-        print(s.decode(), end="")
-    else:
-        print(s, end="")
+class Type(Enum):
+    COMMIT = 1
+    TREE = 2
+    BLOB = 3
+    TAG = 4
+    OFS_DELTA = 6
+    REF_DELTA = 7
 
-def init(path="."):
-    os.mkdir(path + "/.git")
-    os.mkdir(path + "/.git/objects")
-    os.mkdir(path + "/.git/refs")
-    with open(path + "/.git/HEAD", "w") as f:
-        f.write("ref: refs/heads/master\n")
-    print("Initialized git directory")
-
-def main():
-    # You can use print statements as follows for debugging, they'll be visible when running tests.
-    # print("Logs from your program will appear here!")
-
-    # Uncomment this block to pass the first stage
-    #
-    command = sys.argv[1]
-    if command == "init":
-        init("./")
-    elif command == "cat-file":
-        sha1 = sys.argv[3]
-        with open(".git/objects/"+sha1[:2]+"/"+sha1[2:], "rb") as f:
+class Repo:
+    path = ""
+    def __init__(self,path="."):
+        self.path = path
+        if os.path.isdir(path + "/.git"):
+            return
+        os.mkdir(path + "/.git")
+        os.mkdir(path + "/.git/objects")
+        os.mkdir(path + "/.git/refs")
+        with open(path + "/.git/HEAD", "w") as f:
+            f.write("ref: refs/heads/master\n")
+        print("Initialized git directory")
+    
+    def cat_file(self,sha1):
+        with open(f"{self.path}/.git/objects/{sha1[:2]}/{sha1[2:]}", "rb") as f:
             s = zlib.decompress(f.read())
-        # print(s.decode(), end="")
-        # print(hashlib.sha1(zlib.decompress(s)).hexdigest())
         kind, s = s.split(b" ", maxsplit=1)
         size, s = s.split(b"\0", maxsplit=1)
-        # print(kind,size,s)
-        cat_file(kind,s)
+        #print(kind,size,s,Type[kind.decode().upper()].value)
+        o = gen_obj(Type[kind.decode().upper()].value,s)
+        o.cat_file()
+
+def main():
+    command = sys.argv[1]
+    if command == "init":
+        Repo("./")
+    elif command == "cat-file":
+        sha1 = sys.argv[3]
+        repo = Repo("./")
+        repo.cat_file(sha1)
     elif command == "hash-object":
         print(write_tree(sys.argv[3]))
     elif command == "ls-tree":

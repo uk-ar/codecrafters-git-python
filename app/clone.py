@@ -11,7 +11,7 @@
 # .git/objects/pack/pack-dcb42ab2f64d6f9c58d4c3b74152cee3608612a9.pack: ok
 
 import sys
-import requests
+#import requests
 import zlib
 import hashlib
 import base64
@@ -63,7 +63,7 @@ class Obj:
         return f'{self.sha1()} {types[self.type()].decode().lower(): <6} {self.get_size()} {self.size_in_packfile} {self.offset_in_packfile}'
     
     def cat_file(self):
-        print(self.raw.decode())
+        print(self.raw.decode(), end="")
 
 @dataclass
 class Ofs_delta(Obj):
@@ -205,7 +205,7 @@ od = OrderedDict() # offset to sha1
 contents = {}
 obj_types = {}
 
-def gen_obj(type_num : int ,content : bytes, offset_in_packfile : int, size_in_packfile : int):
+def gen_obj(type_num : int ,content : bytes, offset_in_packfile : int = 0, size_in_packfile : int = 0):
     # print("off",offset_in_packfile)
     if types[type_num] == b"BLOB":
         return Blob(type_num,content,offset_in_packfile,size_in_packfile)
@@ -386,10 +386,11 @@ def clone(url,dir):
 
 # clone("https://github.com/codecrafters-io/git-sample-1","test_dir")
 
-packfile = sys.argv[1]
-dst_dir  = sys.argv[2]
-for sha1,obj in parse_packfile(packfile).items():
-    write_object(Obj.file(obj.type(),obj.content()),dst_dir)
-checkout(tree,sha1_objs,dst_dir)
-    #print(obj.verify())
-    #print(obj.cat_file())
+if __name__ == "__main__":
+    packfile = sys.argv[1]
+    dst_dir  = sys.argv[2]
+    for sha1,obj in parse_packfile(packfile).items():
+       write_object(Obj.file(obj.type(),obj.content()),dst_dir)
+    #checkout(tree,sha1_objs,dst_dir)
+        #print(obj.verify())
+        #print(obj.cat_file())
