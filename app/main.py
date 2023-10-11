@@ -74,15 +74,13 @@ class Repo:
             f.write("ref: refs/heads/master\n")
         print("Initialized git directory")
     
-    def cat_file(self,sha1):
+    def get_obj(self,sha1):
         with open(f"{self.path}/.git/objects/{sha1[:2]}/{sha1[2:]}", "rb") as f:
             s = zlib.decompress(f.read())
         kind, s = s.split(b" ", maxsplit=1)
         size, s = s.split(b"\0", maxsplit=1)
         #print(kind,size,s,Type[kind.decode().upper()].value)
-        o = gen_obj(Type[kind.decode().upper()].value,s)
-        o.cat_file()
-    
+        return gen_obj(Type[kind.decode().upper()].value,s)    
 
 def main():
     command = sys.argv[1]
@@ -91,7 +89,7 @@ def main():
     elif command == "cat-file":
         sha1 = sys.argv[3]
         repo = Repo("./")
-        repo.cat_file(sha1)
+        repo.get_obj(sha1).cat_file()
     elif command == "hash-object":
         print(write_tree(sys.argv[3]))
     elif command == "ls-tree":
